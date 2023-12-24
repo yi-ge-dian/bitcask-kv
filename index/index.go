@@ -19,6 +19,6 @@ type Item struct {
 	Pos *data.LogRecordPos
 }
 
-func (item Item) Less(that btree.Item) bool {
-	return bytes.Compare(item.Key, that.(Item).Key) == -1
+func (item *Item) Less(that btree.Item) bool {
+	return bytes.Compare(item.Key, that.(*Item).Key) == -1
 }
