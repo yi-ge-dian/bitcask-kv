@@ -13,6 +13,7 @@ import (
 	"github.com/yi-ge-dian/bitcask-kv/index"
 )
 
+// DB bitcask 数据库存储引擎
 type DB struct {
 	options    Options                   // 数据库配置
 	activeFile *data.DataFile            // 活跃数据文件,可以用于写入
@@ -39,9 +40,11 @@ func Open(options Options) (*DB, error) {
 	// 初始化数据库
 	db := &DB{
 		options:    options,
+		activeFile: nil,
 		olderFiles: make(map[uint32]*data.DataFile),
 		index:      index.NewIndexer(options.IndexType),
 		mu:         &sync.RWMutex{},
+		fileIds:    nil,
 	}
 
 	// 加载数据文件
@@ -64,6 +67,7 @@ func (db *DB) Put(key, value []byte) error {
 	if len(key) == 0 {
 		return ErrKeyIsEmpty
 	}
+
 	// 构造LogRecord 结构体
 	logRecord := &data.LogRecord{
 		Key:   key,
@@ -112,6 +116,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if dataFile == nil {
 		return nil, ErrDataFileNotFound
 	}
+
 	// 根据偏移量从数据文件中读取数据
 	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
 	if err != nil {
@@ -211,7 +216,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 // setActiveDataFile 设置活跃数据文件
 func (db *DB) setActiveDataFile() error {
 	var initialFileId uint32 = 0
-	if db.activeFile == nil {
+	if db.activeFile != nil {
 		initialFileId = db.activeFile.FileId + 1
 	}
 	// 打开新的数据文件
@@ -242,8 +247,9 @@ func (db *DB) loadDataFiles() error {
 	if err != nil {
 		return err
 	}
+
+	// 遍历所有文件,找到所有以 .data 为结尾的数据文件
 	var FileIds []int
-	// 遍历所有文件,找到所有以.data为结尾的数据文件
 	for _, entry := range dirEntries {
 		if strings.HasSuffix(entry.Name(), data.DataFileSuffix) {
 			splitNames := strings.Split(entry.Name(), ".")
@@ -255,9 +261,11 @@ func (db *DB) loadDataFiles() error {
 			FileIds = append(FileIds, fileId)
 		}
 	}
+
 	// 对文件id进行排序,从小到大
 	sort.Ints(FileIds)
 	db.fileIds = FileIds
+
 	// 遍历所有文件id,打开数据文件
 	for i, fid := range FileIds {
 		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fid))
@@ -274,6 +282,7 @@ func (db *DB) loadDataFiles() error {
 	return nil
 }
 
+// loadIndexFromDataFiles 从数据文件中加载索引
 func (db *DB) loadIndexFromDataFiles() error {
 	// 如果没有数据文件，则直接返回
 	if len(db.fileIds) == 0 {
@@ -305,10 +314,14 @@ func (db *DB) loadIndexFromDataFiles() error {
 				Offset: offset,
 			}
 			// 如果数据记录类型为删除类型，则从内存索引中删除
+			var ok bool
 			if logRecord.Type == data.LogRecordDelete {
-				db.index.Delete(logRecord.Key)
+				ok = db.index.Delete(logRecord.Key)
 			} else {
-				db.index.Put(logRecord.Key, logRecordPos)
+				ok = db.index.Put(logRecord.Key, logRecordPos)
+			}
+			if !ok {
+				return ErrIndexUpateFailed
 			}
 
 			// 更新偏移量

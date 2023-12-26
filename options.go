@@ -12,6 +12,7 @@ type IndexerType = byte
 const (
 	// BTreeIndex btree索引
 	BTree IndexerType = iota
+	
 	// 自适应基数树索引
 	AdaptiveRadixTree
 )

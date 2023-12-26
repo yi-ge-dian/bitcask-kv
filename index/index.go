@@ -19,10 +19,12 @@ type IndexType = byte
 const (
 	// BTreeIndex btree索引
 	Btree IndexType = iota
+
 	// 自适应基数树索引
 	AdaptiveRadixTree
 )
 
+// NewIndexer 根据索引类型创建索引
 func NewIndexer(indexType IndexType) Indexer {
 	switch indexType {
 	case Btree:

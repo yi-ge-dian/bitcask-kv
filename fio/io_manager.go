@@ -2,13 +2,16 @@ package fio
 
 const DataFilePerm = 0644
 
+// IOManager 是一个抽象的IO接口，用于实现不同的IO
 type IOManager interface {
-	// Read 从文件中给定的位置读取数据
 	Read([]byte, int64) (int, error)
-	// Write 将数据写入到文件中给定的位置
 	Write([]byte) (int, error)
-	// Sync 将数据同步到磁盘
 	Sync() error
-	// Close 关闭文件
 	Close() error
+	Size() (int64, error)
+}
+
+// NewIOManager 初始化IOManager，目前只支持标准的文件IO
+func NewIOManager(fileName string) (IOManager, error) {
+	return NewFileIOManager(fileName)
 }

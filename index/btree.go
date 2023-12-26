@@ -7,9 +7,11 @@ import (
 	"github.com/yi-ge-dian/bitcask-kv/data"
 )
 
+// BTree 索引，封装了 google 的 btree
+// https://github.com/google/btree
 type BTree struct {
-	tree *btree.BTree  // btree
-	mu   *sync.RWMutex // lock
+	tree *btree.BTree
+	mu   *sync.RWMutex
 }
 
 func NewBTree() *BTree {
