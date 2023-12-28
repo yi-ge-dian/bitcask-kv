@@ -1,7 +1,6 @@
 package fio
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,8 +66,6 @@ func TestFileIO_Read(t *testing.T) {
 	assert.Equal(t, 10, n3)
 
 	n4, err := fio.Read(buf, 10)
-	fmt.Println(string(buf))
-	fmt.Println(n4)
 	assert.NotNil(t, err) // due to EOF
 	assert.Equal(t, 7, n4)
 }

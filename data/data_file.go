@@ -23,7 +23,7 @@ type DataFile struct {
 // OpenDataFile 打开数据文件
 func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
 	// 假设dirPath为"/tmp/bitcask-kv" fileId为1 则fileName为"/tmp/bitcask-kv/000000001.data"
-	fileName := filepath.Join(dirPath, fmt.Sprintf("%09d%s", fileId, DataFileSuffix))
+	fileName := filepath.Join(dirPath, fmt.Sprintf("%09d", fileId)+DataFileSuffix)
 	// 通过文件名创建IOManager
 	ioManager, err := fio.NewIOManager(fileName)
 	if err != nil {
@@ -38,6 +38,7 @@ func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
 }
 
 // ReadLogRecord 读取数据文件，根据offset读取数据文件中的数据
+// 返回值：LogRecord, 读取的字节数, error
 func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 	fileSize, err := df.IOManager.Size()
 	if err != nil {
@@ -70,10 +71,13 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 	keySize, valueSize := int64(header.KeySize), int64(header.ValueSize)
 	var recordSize = headerSize + keySize + valueSize
 
-	logRecord := &LogRecord{}
+	// 初始化 LogRecord, 目前只能从头部拿到 LogRecord 的类型，等待去拿 key和value
+	logRecord := &LogRecord{
+		Type: header.RecordType,
+	}
 
 	// 读取数据
-	if keySize > 0 && valueSize > 0 {
+	if keySize > 0 || valueSize > 0 {
 		kvBuf, err := df.ReadNBytes(keySize+valueSize, offset+headerSize)
 		if err != nil {
 			return nil, 0, err
@@ -83,7 +87,7 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 	}
 
 	// 计算crc校验码
-	crc := getLogRecordCRC(logRecord, headerBuffer[crc32.Size:headerSize])
+	crc := GetLogRecordCRC(logRecord, headerBuffer[crc32.Size:headerSize])
 	if crc != header.Crc {
 		return nil, 0, ErrInvalidCRC
 	}
@@ -105,7 +109,7 @@ func (df *DataFile) Write(buf []byte) error {
 
 // Sync 持久化数据文件
 func (df *DataFile) Sync() error {
-	return df.IOManager.Close()
+	return df.IOManager.Sync()
 }
 
 // Close 关闭数据文件
