@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	opts := bitcask.DefaultOption
+	opts := bitcask.DefaultOptions
 	db, err := bitcask.Open(opts)
 	if err != nil {
 		panic(err)

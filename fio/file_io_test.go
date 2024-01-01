@@ -15,7 +15,7 @@ func destoryFile(path string) {
 }
 
 func TestFileIOManager(t *testing.T) {
-	path := filepath.Join("test", "a.data")
+	path := filepath.Join(os.TempDir(), "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
 
@@ -24,7 +24,7 @@ func TestFileIOManager(t *testing.T) {
 }
 
 func TestFileIO_Write(t *testing.T) {
-	path := filepath.Join("test", "a.data")
+	path := filepath.Join(os.TempDir(), "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
 
@@ -45,7 +45,7 @@ func TestFileIO_Write(t *testing.T) {
 }
 
 func TestFileIO_Read(t *testing.T) {
-	path := filepath.Join("test", "a.data")
+	path := filepath.Join(os.TempDir(), "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
 
@@ -71,7 +71,7 @@ func TestFileIO_Read(t *testing.T) {
 }
 
 func TestFileIO_Sync(t *testing.T) {
-	path := filepath.Join("test", "a.data")
+	path := filepath.Join(os.TempDir(), "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
 
@@ -91,7 +91,7 @@ func TestFileIO_Sync(t *testing.T) {
 }
 
 func TestFileIO_Close(t *testing.T) {
-	path := filepath.Join("test", "a.data")
+	path := filepath.Join(os.TempDir(), "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destoryFile(path)
 

@@ -37,7 +37,6 @@ func TestEncodeRecord(t *testing.T) {
 		Type:  LogRecordDelete,
 	}
 	res3, n3 := EncodeLogRecord(rec3)
-	t.Log(res3)
 	assert.NotNil(t, res3)
 	assert.Greater(t, n3, int64(5))
 }

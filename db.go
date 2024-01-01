@@ -61,6 +61,17 @@ func Open(options Options) (*DB, error) {
 	return db, nil
 }
 
+// checkOptions 对用户配置进行校验
+func checkOptions(options Options) error {
+	if options.DirPath == "" {
+		return errors.New("the dir path is empty")
+	}
+	if options.DataFileSize <= 0 {
+		return errors.New("the max data file size is invalid")
+	}
+	return nil
+}
+
 // Put 向数据库中写入数据, key 不能为空
 func (db *DB) Put(key, value []byte) error {
 	// 判断key是否为空
@@ -104,31 +115,8 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrKeyNotFound
 	}
 
-	// 根据文件id找到对应的数据文件
-	var dataFile *data.DataFile
-	if logRecordPos.Fid == db.activeFile.FileId {
-		dataFile = db.activeFile
-	} else {
-		dataFile = db.olderFiles[logRecordPos.Fid]
-	}
-
-	// 如果数据文件为空
-	if dataFile == nil {
-		return nil, ErrDataFileNotFound
-	}
-
-	// 根据偏移量从数据文件中读取数据
-	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
-	if err != nil {
-		return nil, err
-	}
-
-	// 如果数据记录类型为删除类型，则返回空
-	if logRecord.Type == data.LogRecordDelete {
-		return nil, nil
-	}
-
-	return logRecord.Value, nil
+	// 根据数据内存索引从数据文件中读取数据
+	return db.getValueByPosition(logRecordPos)
 }
 
 // Delete 从数据库中删除数据, key 不能为空
@@ -163,6 +151,71 @@ func (db *DB) Delete(key []byte) error {
 	return nil
 }
 
+// ListKeys 列出数据库中所有的key
+func (db *DB) ListKeys() [][]byte {
+	iterator := db.index.Iterator(false)
+	defer iterator.Close()
+	keys := make([][]byte, db.index.Size())
+	var idx int
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		keys[idx] = iterator.Key()
+		idx++
+	}
+	return keys
+}
+
+// Fold 将数据库中的数据按照指定的函数进行处理
+// 如果函数返回false，则停止处理
+func (db *DB) Fold(fn func(key, value []byte) bool) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	iterator := db.index.Iterator(false)
+	defer iterator.Close()
+
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		value, err := db.getValueByPosition(iterator.Value())
+		if err != nil {
+			return err
+		}
+		if !fn(iterator.Key(), value) {
+			break
+		}
+	}
+	return nil
+}
+
+// Close 关闭数据库
+func (db *DB) Close() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// 关闭活跃数据文件
+	if err := db.activeFile.Close(); err != nil {
+		return err
+	}
+
+	// 关闭旧数据文件
+	for _, dataFile := range db.olderFiles {
+		if err := dataFile.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Sync 同步数据到磁盘
+func (db *DB) Sync() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.activeFile.Sync()
+}
+
 // appendLogRecord 追加写数据到活跃文件中
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	db.mu.Lock()
@@ -179,7 +232,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	encRecord, size := data.EncodeLogRecord(logRecord)
 	// 如果当前活跃数据文件的写入偏移加上数据编码后的长度大于等于数据文件的最大长度
 	// 则需要将当前活跃数据文件设置为旧数据文件，并且打开新的数据文件
-	if db.activeFile.WriteOff+size > db.options.MaxDataFileSize {
+	if db.activeFile.WriteOff+size > db.options.DataFileSize {
 		// 先持久化数据文件
 		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
@@ -226,17 +279,6 @@ func (db *DB) setActiveDataFile() error {
 	}
 	// 将新打开的数据文件设置为活跃数据文件
 	db.activeFile = dataFile
-	return nil
-}
-
-// checkOptions 对用户配置进行校验
-func checkOptions(options Options) error {
-	if options.DirPath == "" {
-		return errors.New("the dir path is empty")
-	}
-	if options.MaxDataFileSize <= 0 {
-		return errors.New("the max data file size is invalid")
-	}
 	return nil
 }
 
@@ -335,4 +377,32 @@ func (db *DB) loadIndexFromDataFiles() error {
 	}
 
 	return nil
+}
+
+func (db *DB) getValueByPosition(logRecordPos *data.LogRecordPos) ([]byte, error) {
+	// 根据文件id找到对应的数据文件
+	var dataFile *data.DataFile
+	if logRecordPos.Fid == db.activeFile.FileId {
+		dataFile = db.activeFile
+	} else {
+		dataFile = db.olderFiles[logRecordPos.Fid]
+	}
+
+	// 如果数据文件为空
+	if dataFile == nil {
+		return nil, ErrDataFileNotFound
+	}
+
+	// 根据偏移量从数据文件中读取数据
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果数据记录类型为删除类型，则返回空
+	if logRecord.Type == data.LogRecordDelete {
+		return nil, nil
+	}
+
+	return logRecord.Value, nil
 }

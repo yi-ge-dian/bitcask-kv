@@ -1,17 +1,25 @@
 package index
 
 import (
-	"bytes"
-
-	"github.com/google/btree"
 	"github.com/yi-ge-dian/bitcask-kv/data"
 )
 
 // Indexer 通用索引接口
 type Indexer interface {
+	// Put 添加索引
 	Put(key []byte, pos *data.LogRecordPos) bool
+
+	// Get 获取索引
 	Get(key []byte) *data.LogRecordPos
+
+	// Delete 删除索引
 	Delete(key []byte) bool
+
+	// Size 返回索引中的key数量
+	Size() int
+
+	// Iterator 返回一个迭代器
+	Iterator(reverse bool) Iterator
 }
 
 type IndexType = byte
@@ -37,11 +45,26 @@ func NewIndexer(indexType IndexType) Indexer {
 	}
 }
 
-type Item struct {
-	Key []byte
-	Pos *data.LogRecordPos
-}
+// Iterator 迭代器
+type Iterator interface {
+	// Rewind 重新回到迭代器的起点，即第一个key
+	Rewind()
 
-func (item *Item) Less(that btree.Item) bool {
-	return bytes.Compare(item.Key, that.(*Item).Key) == -1
+	// Seek 根据传入的key，定位到第一个大于等于（或者小于等于）key的位置，然后从该位置开始迭代
+	Seek(key []byte)
+
+	// Next 迭代到下一个key
+	Next()
+
+	// Valid 判断迭代器是否有效
+	Valid() bool
+
+	// Key 返回当前迭代到的key
+	Key() []byte
+
+	// Value 返回当前迭代到的value
+	Value() *data.LogRecordPos
+
+	// Close 关闭迭代器，释放资源
+	Close()
 }
