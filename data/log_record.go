@@ -8,8 +8,9 @@ import (
 type LogRecordType = byte
 
 const (
-	LogRecordNormal LogRecordType = iota // 普通的数据记录
-	LogRecordDelete                      // 删除的数据记录
+	LogRecordNormal      LogRecordType = iota // 普通的数据记录
+	LogRecordDeleted                          // 删除的数据记录
+	LogRecordTxnFinished                      // 事务的数据记录
 )
 
 // LogRecordHeader 数据头部记录
@@ -110,4 +111,10 @@ func GetLogRecordCRC(logRecord *LogRecord, header []byte) uint32 {
 	crc = crc32.Update(crc, crc32.IEEETable, logRecord.Value)
 
 	return crc
+}
+
+// TransactionRecord 暂存的事务相关的数据
+type TransactionRecord struct {
+	Record *LogRecord
+	Pos    *LogRecordPos
 }

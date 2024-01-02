@@ -34,7 +34,7 @@ func TestEncodeRecord(t *testing.T) {
 	rec3 := &LogRecord{
 		Key:   []byte("name"),
 		Value: nil,
-		Type:  LogRecordDelete,
+		Type:  LogRecordDeleted,
 	}
 	res3, n3 := EncodeLogRecord(rec3)
 	assert.NotNil(t, res3)
@@ -68,7 +68,7 @@ func TestDecodeLogRecordHeader(t *testing.T) {
 	assert.NotNil(t, header3)
 	assert.Equal(t, int64(7), n3)
 	assert.Equal(t, uint32(3756865478), header3.Crc)
-	assert.Equal(t, LogRecordDelete, header3.RecordType)
+	assert.Equal(t, LogRecordDeleted, header3.RecordType)
 	assert.Equal(t, uint32(4), header3.KeySize)
 	assert.Equal(t, uint32(0), header3.ValueSize)
 }
@@ -98,7 +98,7 @@ func TestGetLogRecordCRC(t *testing.T) {
 	rec3 := &LogRecord{
 		Key:   []byte("name"),
 		Value: nil,
-		Type:  LogRecordDelete,
+		Type:  LogRecordDeleted,
 	}
 	headerBuffer3 := []byte{198, 55, 237, 223, 1, 4, 0}
 	crc3 := GetLogRecordCRC(rec3, headerBuffer3[crc32.Size:])
