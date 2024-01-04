@@ -6,7 +6,8 @@ import (
 
 // FileIO 文件IO
 type FileIO struct {
-	fd *os.File // 系统文件描述符
+	//  系统文件描述符
+	fd *os.File
 }
 
 // NewFileIOManager 初始化文件IO

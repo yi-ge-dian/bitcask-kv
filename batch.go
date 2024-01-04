@@ -22,9 +22,6 @@ type WriteBatch struct {
 
 // NewWriteBatch 初始化 WriteBatch
 func (db *DB) NewWriteBatch(opts WriteBatchOptions) *WriteBatch {
-	// if db.options.IndexType == BPlusTree && !db.seqNoFileExists && !db.isInitial {
-	// 	panic("cannot use write batch, seq no file not exists")
-	// }
 	return &WriteBatch{
 		options:       opts,
 		mu:            new(sync.Mutex),
@@ -65,7 +62,10 @@ func (wb *WriteBatch) Delete(key []byte) error {
 	}
 
 	// 暂存 LogRecord
-	logRecord := &data.LogRecord{Key: key, Type: data.LogRecordDeleted}
+	logRecord := &data.LogRecord{
+		Key:  key,
+		Type: data.LogRecordDeleted,
+	}
 	wb.pendingWrites[string(key)] = logRecord
 	return nil
 }

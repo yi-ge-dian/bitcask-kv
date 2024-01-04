@@ -15,13 +15,26 @@ import (
 
 // DB bitcask 数据库存储引擎
 type DB struct {
-	options    Options                   // 数据库配置
-	activeFile *data.DataFile            // 活跃数据文件,可以用于写入
-	olderFiles map[uint32]*data.DataFile // 旧数据文件，只能用于读 fileId -> DataFile
-	index      index.Indexer             // 内存索引
-	mu         *sync.RWMutex             // 读写锁
-	fileIds    []int                     // 数据文件id，仅在加载数据文件索引时使用
-	seqNo      uint64                    // 事务序列号，全局递增
+	// 数据库配置
+	options Options
+
+	// 活跃数据文件,可以用于写入
+	activeFile *data.DataFile
+
+	// 旧数据文件，只能用于读 fileId -> DataFile
+	olderFiles map[uint32]*data.DataFile
+
+	// 内存索引
+	index index.Indexer
+
+	// 读写锁
+	mu *sync.RWMutex
+
+	// 数据文件id，仅在加载数据文件索引时使用
+	fileIds []int
+
+	// 事务序列号，全局递增
+	seqNo uint64
 }
 
 // Open 打开 bitcask 数据库存储引擎实例

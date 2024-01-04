@@ -1,6 +1,9 @@
 package index
 
 import (
+	"bytes"
+
+	"github.com/google/btree"
 	"github.com/yi-ge-dian/bitcask-kv/data"
 )
 
@@ -31,6 +34,17 @@ const (
 	// 自适应基数树索引
 	AdaptiveRadixTree
 )
+
+// Item
+type Item struct {
+	Key []byte
+	Pos *data.LogRecordPos
+}
+
+// Less 比较两个item的大小，用于btree的排序
+func (item *Item) Less(that btree.Item) bool {
+	return bytes.Compare(item.Key, that.(*Item).Key) == -1
+}
 
 // NewIndexer 根据索引类型创建索引
 func NewIndexer(indexType IndexType) Indexer {

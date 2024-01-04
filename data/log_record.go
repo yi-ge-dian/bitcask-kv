@@ -15,10 +15,17 @@ const (
 
 // LogRecordHeader 数据头部记录
 type LogRecordHeader struct {
-	Crc        uint32        // crc校验码 4
-	RecordType LogRecordType // 数据记录类型 1
-	KeySize    uint32        // key的长度（变长）
-	ValueSize  uint32        // value的长度（变长）
+	// crc 校验码 4
+	Crc uint32
+
+	// 数据记录类型 1
+	RecordType LogRecordType
+
+	// key的长度 1-5
+	KeySize uint32
+
+	// value的长度 1-5
+	ValueSize uint32
 }
 
 // crc + type + keySize + valueSize + key + value
@@ -27,9 +34,29 @@ const maxLogRecordHeaderSize = binary.MaxVarintLen32*2 + 5
 
 // LogRecord 数据记录
 type LogRecord struct {
-	Key   []byte        // key
-	Value []byte        // value
-	Type  LogRecordType // 数据记录类型
+	// key
+	Key []byte
+
+	// value
+	Value []byte
+
+	// 数据记录类型
+	Type LogRecordType
+}
+
+// LogRecordPos 数据内存索引, 主要是描述数据在磁盘上的位置
+type LogRecordPos struct {
+	// 文件id, 表示将数据存储到了哪个文件当中
+	Fid uint32
+
+	// 偏移, 表示将数据存储到了数据文件中的哪个位置
+	Offset int64
+}
+
+// TransactionRecord 暂存的事务相关的数据
+type TransactionRecord struct {
+	Record *LogRecord
+	Pos    *LogRecordPos
 }
 
 // EncodeLogRecord 编码数据记录
@@ -93,12 +120,6 @@ func DecodeLogRecordHeader(buf []byte) (*LogRecordHeader, int64) {
 	}, int64(pos)
 }
 
-// LogRecordPos 数据内存索引主要是描述数据在磁盘上的位置
-type LogRecordPos struct {
-	Fid    uint32 // 文件id,表示将数据存储到了哪个文件当中
-	Offset int64  // 偏移,表示将数据存储到了数据文件中的哪个位置
-}
-
 // GetLogRecordCRC 计算crc校验码
 func GetLogRecordCRC(logRecord *LogRecord, header []byte) uint32 {
 	if logRecord == nil {
@@ -111,10 +132,4 @@ func GetLogRecordCRC(logRecord *LogRecord, header []byte) uint32 {
 	crc = crc32.Update(crc, crc32.IEEETable, logRecord.Value)
 
 	return crc
-}
-
-// TransactionRecord 暂存的事务相关的数据
-type TransactionRecord struct {
-	Record *LogRecord
-	Pos    *LogRecordPos
 }

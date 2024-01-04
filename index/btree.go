@@ -16,17 +16,6 @@ type BTree struct {
 	mu   *sync.RWMutex
 }
 
-// Item btree索引的item
-type Item struct {
-	Key []byte
-	Pos *data.LogRecordPos
-}
-
-// Less 比较两个item的大小，用于btree的排序
-func (item *Item) Less(that btree.Item) bool {
-	return bytes.Compare(item.Key, that.(*Item).Key) == -1
-}
-
 // NewBTree 创建btree索引
 func NewBTree() *BTree {
 	return &BTree{
@@ -80,9 +69,14 @@ func (bt *BTree) Iterator(reverse bool) Iterator {
 
 // BTree Iterator 迭代器
 type BTreeIterator struct {
-	currIndex int     // 当前遍历到的索引
-	reverse   bool    // 是否反向遍历
-	values    []*Item // key 位置信息
+	// 当前遍历到的索引
+	currIndex int
+
+	// 是否反向遍历
+	reverse bool
+
+	// 所有的 value 信息
+	values []*Item
 }
 
 // NewBTreeIterator 创建btree迭代器

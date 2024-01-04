@@ -15,9 +15,14 @@ const DataFileSuffix = ".data"
 
 // DataFile 数据文件, 用于存储数据(写入磁盘)
 type DataFile struct {
-	FileId    uint32        // 文件id
-	WriteOff  int64         // 写入偏移
-	IOManager fio.IOManager // io管理器
+	// 文件唯一标识
+	FileId uint32
+
+	// 当前文件写入偏移
+	WriteOff int64
+
+	// IOManager 用于管理文件IO
+	IOManager fio.IOManager
 }
 
 // OpenDataFile 打开数据文件

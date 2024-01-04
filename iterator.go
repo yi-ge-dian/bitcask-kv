@@ -7,9 +7,14 @@ import (
 )
 
 type Iterator struct {
-	index   index.Iterator // 索引迭代器
-	db      *DB            // 数据库
-	options IteratorOption // 迭代器选项
+	// 索引迭代器
+	index index.Iterator
+
+	// 数据库
+	db *DB
+
+	// 迭代器选项
+	options IteratorOption
 }
 
 // NewIterator 创建迭代器
