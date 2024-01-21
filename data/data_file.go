@@ -2,6 +2,8 @@ package data
 
 import "github.com/yi-ge-dian/bitcask-kv/fio"
 
+const DataFileNameSuffix = ".data"
+
 // DataFile
 type DataFile struct {
 	// File Identifier
@@ -19,8 +21,8 @@ func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
 	return nil, nil
 }
 
-func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, error) {
-	return nil, nil
+func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
+	return nil, 0, nil
 }
 
 func (df *DataFile) Write(buf []byte) error {

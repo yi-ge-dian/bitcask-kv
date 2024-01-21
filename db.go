@@ -1,6 +1,12 @@
 package bitcaskkv
 
 import (
+	"errors"
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/yi-ge-dian/bitcask-kv/data"
@@ -16,6 +22,10 @@ type DB struct {
 	// concurrency control
 	mu *sync.RWMutex
 
+	// file ids
+	// can only be used when the index is loaded, and cannot be updated and used elsewhere
+	fileIds []int
+
 	// active data file, only for write
 	activeFile *data.DataFile
 
@@ -24,6 +34,41 @@ type DB struct {
 
 	// memory index
 	index index.Indexer
+}
+
+// Open a Bitcask KV Storage Engine Instance
+func Open(options Options) (*DB, error) {
+	// perform checks on configuration items passed in by the user
+	if err := checkOptions(options); err != nil {
+		return nil, err
+	}
+
+	// determine if the data directory exists, and create it if it does not.
+	if _, err := os.Stat(options.DirPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil {
+			return nil, err
+		}
+	}
+
+	// create a new Bitcask KV Storage Engine Instance
+	db := &DB{
+		options:    options,
+		mu:         new(sync.RWMutex),
+		olderFiles: make(map[uint32]*data.DataFile),
+		index:      index.NewIndexer(options.IndexType),
+	}
+
+	// load data files from disk
+	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+
+	// load index from data files
+	if err := db.loadIndexFromDataFiles(); err != nil {
+		return nil, err
+	}
+
+	return db, nil
 }
 
 // Put Key/Value data, key can not be empty
@@ -84,7 +129,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	}
 
 	// read the corresponding data according to the offset
-	logRecord, err := dataFile.ReadLogRecord(logRecordPos.Offset)
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -167,5 +212,108 @@ func (db *DB) setActiveDataFile() error {
 
 	// set active data file
 	db.activeFile = dataFile
+	return nil
+}
+
+// loadDataFiles from the disk
+func (db *DB) loadDataFiles() error {
+	dirEntries, err := os.ReadDir(db.options.DirPath)
+	if err != nil {
+		return err
+	}
+
+	var fileIds []int
+	// iterate through the directory to find all files ending in .data
+	for _, entry := range dirEntries {
+		if strings.HasSuffix(entry.Name(), data.DataFileNameSuffix) {
+			splitNames := strings.Split(entry.Name(), ".")
+			fileId, err := strconv.Atoi(splitNames[0])
+			// there's a chance that the data directory may have been corrupted
+			if err != nil {
+				return ErrDataDirectoryCorrupted
+			}
+			fileIds = append(fileIds, fileId)
+		}
+	}
+
+	//	sort the file ids and load them in order from smallest to largest
+	sort.Ints(fileIds)
+	db.fileIds = fileIds
+
+	// iterate over each file id and open the corresponding data file
+	for i, fid := range fileIds {
+		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fid))
+		if err != nil {
+			return err
+		}
+
+		if i == len(fileIds)-1 {
+			// the last one, with the largest id, means it's the currently active file
+			db.activeFile = dataFile
+		} else {
+			// indicates an old data file
+			db.olderFiles[uint32(fid)] = dataFile
+		}
+	}
+	return nil
+}
+
+// loadIndexFromDataFiles, iterate over all records in the file
+// and update to the in-memory indexes
+func (db *DB) loadIndexFromDataFiles() error {
+	if len(db.fileIds) == 0 {
+		return nil
+	}
+
+	// iterate over all file ids and process records in the file
+	for i, fid := range db.fileIds {
+		var fileId = uint32(fid)
+		var dataFile *data.DataFile
+		if fileId == db.activeFile.FileId {
+			dataFile = db.activeFile
+		} else {
+			dataFile = db.olderFiles[fileId]
+		}
+
+		var offset int64 = 0
+		for {
+			logRecord, size, err := dataFile.ReadLogRecord(offset)
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+
+			// construct an in-memory index and put
+			logRecordPos := &data.LogRecordPos{
+				Fid:    fileId,
+				Offset: offset,
+			}
+			if logRecord.Type == data.LogRecordDeleted {
+				db.index.Delete(logRecord.Key)
+			} else {
+				db.index.Put(logRecord.Key, logRecordPos)
+			}
+
+			// increment offset, next read from new position
+			offset += size
+		}
+
+		// if it is a currently active file, update this file's WriteOff
+		if i == len(db.fileIds)-1 {
+			db.activeFile.WriteOff = offset
+		}
+	}
+	return nil
+}
+
+func checkOptions(options Options) error {
+	if options.DirPath == "" {
+		return errors.New("database dir path is empty")
+	}
+	if options.DataFileSize <= 0 {
+		return errors.New("database data file size must be greater than 0")
+	}
 	return nil
 }
