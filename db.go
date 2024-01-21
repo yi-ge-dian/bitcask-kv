@@ -142,6 +142,37 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	return logRecord.Value, nil
 }
 
+// Delete Key/Value data, key can not be empty
+func (db *DB) Delete(key []byte) error {
+	if len(key) == 0 {
+		return ErrKeyIsEmpty
+	}
+
+	// first check if the key exists, and if not, return it directly.
+	if pos := db.index.Get(key); pos == nil {
+		return nil
+	}
+
+	// constructs a LogRecord that identifies it as deleted.
+	logRecord := &data.LogRecord{
+		Key:  key,
+		Type: data.LogRecordDeleted,
+	}
+
+	// write to data file
+	_, err := db.appendLogRecord(logRecord)
+	if err != nil {
+		return nil
+	}
+
+	// remove the corresponding key from the in-memory index
+	ok := db.index.Delete(key)
+	if !ok {
+		return ErrIndexUpdateFailed
+	}
+	return nil
+}
+
 // appendLogRecord log record to the currently active data file
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	db.mu.Lock()
@@ -290,10 +321,14 @@ func (db *DB) loadIndexFromDataFiles() error {
 				Fid:    fileId,
 				Offset: offset,
 			}
+			var ok bool
 			if logRecord.Type == data.LogRecordDeleted {
-				db.index.Delete(logRecord.Key)
+				ok = db.index.Delete(logRecord.Key)
 			} else {
-				db.index.Put(logRecord.Key, logRecordPos)
+				ok = db.index.Put(logRecord.Key, logRecordPos)
+			}
+			if !ok {
+				return ErrIndexUpdateFailed
 			}
 
 			// increment offset, next read from new position
