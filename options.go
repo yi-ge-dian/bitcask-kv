@@ -1,5 +1,7 @@
 package bitcaskkv
 
+import "os"
+
 type Options struct {
 	// Database directory path
 	DirPath string
@@ -23,3 +25,10 @@ const (
 	// Adpative Radix Tree
 	ART
 )
+
+var DefaultOptions = Options{
+	DirPath:      os.TempDir(),
+	DataFileSize: 256 * 1024 * 1024, // 256MB
+	SyncWrites:   false,
+	IndexType:    BTree,
+}
