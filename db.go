@@ -34,6 +34,9 @@ type DB struct {
 
 	// memory index
 	index index.Indexer
+
+	// Transaction sequence number, globally incrementing
+	seqNo uint64
 }
 
 // Open a Bitcask KV Storage Engine Instance
@@ -110,13 +113,13 @@ func (db *DB) Put(key []byte, value []byte) error {
 
 	// construct log record
 	logRecord := &data.LogRecord{
-		Key:   key,
+		Key:   logRecordKeyWithSeq(key, db.seqNo),
 		Value: value,
 		Type:  data.LogRecordNormal,
 	}
 
 	// append log record to the currently active data file
-	pos, err := db.appendLogRecord(logRecord)
+	pos, err := db.appendLogRecordWithLock(logRecord)
 	if err != nil {
 		return err
 	}
@@ -142,12 +145,12 @@ func (db *DB) Delete(key []byte) error {
 
 	// constructs a LogRecord that identifies it as deleted.
 	logRecord := &data.LogRecord{
-		Key:  key,
+		Key:  logRecordKeyWithSeq(key, db.seqNo),
 		Type: data.LogRecordDeleted,
 	}
 
 	// write to data file
-	_, err := db.appendLogRecord(logRecord)
+	_, err := db.appendLogRecordWithLock(logRecord)
 	if err != nil {
 		return nil
 	}
@@ -242,12 +245,17 @@ func (db *DB) getValueByPosition(logRecordPos *data.LogRecordPos) ([]byte, error
 	return logRecord.Value, nil
 }
 
+// appendLogRecordWithLock
+// append log record to the currently active data file with lock
+func (db *DB) appendLogRecordWithLock(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.appendLogRecord(logRecord)
+}
+
 // appendLogRecord
 // append log record to the currently active data file
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
 	// determine if the currently active data file exists, Since no file is
 	// generated when the database is not being written to
 	if db.activeFile == nil {
@@ -366,6 +374,22 @@ func (db *DB) loadIndexFromDataFiles() error {
 		return nil
 	}
 
+	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
+		var ok bool
+		if typ == data.LogRecordDeleted {
+			ok = db.index.Delete(key)
+		} else {
+			ok = db.index.Put(key, pos)
+		}
+		if !ok {
+			panic("failed to update index at startup")
+		}
+	}
+
+	// temporary transaction data, transaction id ==> transaction record
+	transactionRecords := make(map[uint64][]*data.TransactionRecord)
+	var currentSeqNo = nonTransactionSeqNo
+
 	// iterate over all file ids and process records in the file
 	for i, fid := range db.fileIds {
 		var fileId = uint32(fid)
@@ -391,14 +415,35 @@ func (db *DB) loadIndexFromDataFiles() error {
 				Fid:    fileId,
 				Offset: offset,
 			}
-			var ok bool
-			if logRecord.Type == data.LogRecordDeleted {
-				ok = db.index.Delete(logRecord.Key)
+
+			// parse the key from the log record, get the transaction sequence number
+			realKey, seqNo := parseLogRecordKey(logRecord.Key)
+			if seqNo == nonTransactionSeqNo {
+				// Non-transactional operation, directly updating the memory index
+				updateIndex(realKey, logRecord.Type, logRecordPos)
 			} else {
-				ok = db.index.Put(logRecord.Key, logRecordPos)
+				// Transaction operation, can be updated to the memory index
+				if logRecord.Type == data.LogRecordTxnFinished {
+					// 1. if the transaction is complete, the transaction record is deleted
+					// from the temporary transaction data
+					for _, txnRecord := range transactionRecords[seqNo] {
+						updateIndex(txnRecord.Record.Key, txnRecord.Record.Type, txnRecord.Pos)
+					}
+					delete(transactionRecords, seqNo)
+				} else {
+					// 2. if the transaction is not complete, the transaction record is
+					// added to the temporary transaction data
+					logRecord.Key = realKey
+					transactionRecords[seqNo] = append(transactionRecords[seqNo], &data.TransactionRecord{
+						Record: logRecord,
+						Pos:    logRecordPos,
+					})
+				}
 			}
-			if !ok {
-				return ErrIndexUpdateFailed
+
+			// update transaction sequence number
+			if seqNo > currentSeqNo {
+				currentSeqNo = seqNo
 			}
 
 			// increment offset, next read from new position
@@ -410,6 +455,9 @@ func (db *DB) loadIndexFromDataFiles() error {
 			db.activeFile.WriteOff = offset
 		}
 	}
+
+	// update db instance transaction sequence number
+	db.seqNo = currentSeqNo
 	return nil
 }
 

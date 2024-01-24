@@ -10,6 +10,7 @@ type LogRecordType = byte
 const (
 	LogRecordNormal LogRecordType = iota
 	LogRecordDeleted
+	LogRecordTxnFinished
 )
 
 // crc type keySize valueSize
@@ -48,6 +49,16 @@ type LogRecordPos struct {
 
 	// Offset, which indicates where the data is stored in the data file
 	Offset int64
+}
+
+// TransactionRecord
+// Temporarily stored transaction-related data
+type TransactionRecord struct {
+	// The log record of the transaction
+	Record *LogRecord
+
+	// The position of the log record in the data file
+	Pos *LogRecordPos
 }
 
 // EncodeLogRecord
