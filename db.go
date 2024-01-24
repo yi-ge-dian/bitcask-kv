@@ -71,6 +71,37 @@ func Open(options Options) (*DB, error) {
 	return db, nil
 }
 
+// Close the Bitcask KV Storage Engine Instance
+func (db *DB) Close() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	//	close the currently active data file
+	if err := db.activeFile.Close(); err != nil {
+		return err
+	}
+	// close all old data files
+	for _, file := range db.olderFiles {
+		if err := file.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Sync the Bitcask KV Storage Engine Instance
+func (db *DB) Sync() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.activeFile.Sync()
+}
+
 // Put Key/Value data, key can not be empty
 func (db *DB) Put(key []byte, value []byte) error {
 	if len(key) == 0 {
@@ -96,50 +127,6 @@ func (db *DB) Put(key []byte, value []byte) error {
 	}
 
 	return nil
-}
-
-// Get Key/Value data, key can not be empty
-func (db *DB) Get(key []byte) ([]byte, error) {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	if len(key) == 0 {
-		return nil, ErrKeyIsEmpty
-	}
-
-	// retrieve the index information corresponding to the key from the in-memory index
-	logRecordPos := db.index.Get(key)
-
-	// if the key is not in the in-memory index
-	if logRecordPos == nil {
-		return nil, ErrKeyNotFound
-	}
-
-	// find the corresponding data file based on the file id
-	var dataFile *data.DataFile
-	if db.activeFile.FileId == logRecordPos.Fid {
-		dataFile = db.activeFile
-	} else {
-		dataFile = db.olderFiles[logRecordPos.Fid]
-	}
-
-	// if the data file is not found
-	if dataFile == nil {
-		return nil, ErrDataFileNotFound
-	}
-
-	// read the corresponding data according to the offset
-	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
-	if err != nil {
-		return nil, err
-	}
-
-	// if the log record is deleted, the key is not found
-	if logRecord.Type == data.LogRecordDeleted {
-		return nil, ErrKeyNotFound
-	}
-
-	return logRecord.Value, nil
 }
 
 // Delete Key/Value data, key can not be empty
@@ -173,7 +160,90 @@ func (db *DB) Delete(key []byte) error {
 	return nil
 }
 
-// appendLogRecord log record to the currently active data file
+// Get Key/Value data, key can not be empty
+func (db *DB) Get(key []byte) ([]byte, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if len(key) == 0 {
+		return nil, ErrKeyIsEmpty
+	}
+
+	// retrieve the index information corresponding to the key from the in-memory index
+	logRecordPos := db.index.Get(key)
+
+	// if the key is not in the in-memory index
+	if logRecordPos == nil {
+		return nil, ErrKeyNotFound
+	}
+
+	// get the corresponding value according to the index information
+	return db.getValueByPosition(logRecordPos)
+}
+
+// ListKeys, Get all keys
+func (db *DB) ListKeys() [][]byte {
+	iterator := db.index.Iterator(false)
+	keys := make([][]byte, db.index.Size())
+	var idx int
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		keys[idx] = iterator.Key()
+		idx++
+	}
+	return keys
+}
+
+// Fold , Get all the data and perform the user-specified operation.
+// Terminate the traversal when the function returns false
+func (db *DB) Fold(fn func(key []byte, value []byte) bool) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	iterator := db.index.Iterator(false)
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		value, err := db.getValueByPosition(iterator.Value())
+		if err != nil {
+			return err
+		}
+		if !fn(iterator.Key(), value) {
+			break
+		}
+	}
+	return nil
+}
+
+// getValueByPosition
+// get the corresponding value according to the index information
+func (db *DB) getValueByPosition(logRecordPos *data.LogRecordPos) ([]byte, error) {
+	// find the corresponding data file according to the file ID
+	var dataFile *data.DataFile
+	if db.activeFile.FileId == logRecordPos.Fid {
+		dataFile = db.activeFile
+	} else {
+		dataFile = db.olderFiles[logRecordPos.Fid]
+	}
+
+	// if data file is empty
+	if dataFile == nil {
+		return nil, ErrDataFileNotFound
+	}
+
+	// read the corresponding data according to the offset
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// if the log record is deleted, it means that the key does not exist
+	if logRecord.Type == data.LogRecordDeleted {
+		return nil, ErrKeyNotFound
+	}
+
+	return logRecord.Value, nil
+}
+
+// appendLogRecord
+// append log record to the currently active data file
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()

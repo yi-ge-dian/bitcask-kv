@@ -49,3 +49,45 @@ func TestBTree_Delete(t *testing.T) {
 	res4 := bt.Delete([]byte("aaa"))
 	assert.True(t, res4)
 }
+
+func TestBTree_Iterator(t *testing.T) {
+	bt1 := NewBTree()
+	// 1. btree is empty
+	iter1 := bt1.Iterator(false)
+	assert.Equal(t, false, iter1.Valid())
+
+	//	2. btree has one item
+	bt1.Put([]byte("ccde"), &data.LogRecordPos{Fid: 1, Offset: 10})
+	iter2 := bt1.Iterator(false)
+	assert.Equal(t, true, iter2.Valid())
+	assert.NotNil(t, iter2.Key())
+	assert.NotNil(t, iter2.Value())
+	iter2.Next()
+	assert.Equal(t, false, iter2.Valid())
+
+	// 3. btree has more than one item
+	bt1.Put([]byte("acee"), &data.LogRecordPos{Fid: 1, Offset: 10})
+	bt1.Put([]byte("eede"), &data.LogRecordPos{Fid: 1, Offset: 10})
+	bt1.Put([]byte("bbcd"), &data.LogRecordPos{Fid: 1, Offset: 10})
+	iter3 := bt1.Iterator(false)
+	for iter3.Rewind(); iter3.Valid(); iter3.Next() {
+		assert.NotNil(t, iter3.Key())
+	}
+
+	iter4 := bt1.Iterator(true)
+	for iter4.Rewind(); iter4.Valid(); iter4.Next() {
+		assert.NotNil(t, iter4.Key())
+	}
+
+	// 4. forward seek
+	iter5 := bt1.Iterator(false)
+	for iter5.Seek([]byte("cc")); iter5.Valid(); iter5.Next() {
+		assert.NotNil(t, iter5.Key())
+	}
+
+	// 5. reverse seek
+	iter6 := bt1.Iterator(true)
+	for iter6.Seek([]byte("zz")); iter6.Valid(); iter6.Next() {
+		assert.NotNil(t, iter6.Key())
+	}
+}

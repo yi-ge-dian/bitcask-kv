@@ -26,9 +26,22 @@ const (
 	ART
 )
 
+type IteratorOptions struct {
+	// Traverses a Key prefixed with the specified value, defaults to null
+	Prefix []byte
+
+	// Whether to traverse in reverse, the default is false, means from small to large
+	Reverse bool
+}
+
 var DefaultOptions = Options{
 	DirPath:      os.TempDir(),
 	DataFileSize: 256 * 1024 * 1024, // 256MB
 	SyncWrites:   false,
 	IndexType:    BTree,
+}
+
+var DefaultIteratorOptions = IteratorOptions{
+	Prefix:  nil,
+	Reverse: false,
 }
