@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ type DB struct {
 
 	// Transaction sequence number, globally incrementing
 	seqNo uint64
+
+	// Whether the database is merging
+	isMerging bool
 }
 
 // Open a Bitcask KV Storage Engine Instance
@@ -61,8 +65,18 @@ func Open(options Options) (*DB, error) {
 		index:      index.NewIndexer(options.IndexType),
 	}
 
+	// load merge data files
+	if err := db.loadMergeFiles(); err != nil {
+		return nil, err
+	}
+
 	// load data files from disk
 	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+
+	// load index from hint file
+	if err := db.loadIndexFromHintFile(); err != nil {
 		return nil, err
 	}
 
@@ -374,6 +388,18 @@ func (db *DB) loadIndexFromDataFiles() error {
 		return nil
 	}
 
+	// check if a merge has occurred
+	hasMerge, nonMergeFileId := false, uint32(0)
+	mergeFinFileName := filepath.Join(db.options.DirPath, data.MergeFinishedFileName)
+	if _, err := os.Stat(mergeFinFileName); err == nil {
+		fid, err := db.getNonMergeFileId(db.options.DirPath)
+		if err != nil {
+			return err
+		}
+		hasMerge = true
+		nonMergeFileId = fid
+	}
+
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
 		var ok bool
 		if typ == data.LogRecordDeleted {
@@ -393,6 +419,13 @@ func (db *DB) loadIndexFromDataFiles() error {
 	// iterate over all file ids and process records in the file
 	for i, fid := range db.fileIds {
 		var fileId = uint32(fid)
+
+		// If it is smaller than the ID of the file that did not participate in the merge recently,
+		// the index has been loaded from the Hint file
+		if hasMerge && fileId < nonMergeFileId {
+			continue
+		}
+
 		var dataFile *data.DataFile
 		if fileId == db.activeFile.FileId {
 			dataFile = db.activeFile
