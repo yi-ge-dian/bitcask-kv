@@ -12,6 +12,12 @@ type Options struct {
 	// Whether to enable data file sync write after each write
 	SyncWrites bool
 
+	// How many bytes are written cumulatively and then persist
+	BytesPerSync uint
+
+	// Whether to use MMap to load data at startup
+	MMapAtStartup bool
+
 	// Index type
 	IndexType IndexerType
 }
@@ -46,10 +52,12 @@ type WriteBatchOptions struct {
 }
 
 var DefaultOptions = Options{
-	DirPath:      os.TempDir(),
-	DataFileSize: 256 * 1024 * 1024, // 256MB
-	SyncWrites:   false,
-	IndexType:    BPlusTree,
+	DirPath:       os.TempDir(),
+	DataFileSize:  256 * 1024 * 1024, // 256MB
+	SyncWrites:    false,
+	BytesPerSync:  0,
+	MMapAtStartup: true,
+	IndexType:     BTree,
 }
 
 var DefaultIteratorOptions = IteratorOptions{
