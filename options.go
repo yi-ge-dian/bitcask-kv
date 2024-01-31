@@ -24,6 +24,9 @@ const (
 
 	// Adpative Radix Tree
 	ART
+
+	// BPlusTree B+ Tree, Store the index to disk
+	BPlusTree
 )
 
 type IteratorOptions struct {
@@ -46,7 +49,7 @@ var DefaultOptions = Options{
 	DirPath:      os.TempDir(),
 	DataFileSize: 256 * 1024 * 1024, // 256MB
 	SyncWrites:   false,
-	IndexType:    BTree,
+	IndexType:    BPlusTree,
 }
 
 var DefaultIteratorOptions = IteratorOptions{

@@ -11,6 +11,7 @@ import (
 
 // BTree
 // Use the btree to implement the index
+//
 // https://github.com/google/btree
 type BTree struct {
 	tree *btree.BTree
@@ -56,6 +57,10 @@ func (bt *BTree) Delete(key []byte) bool {
 
 func (bt *BTree) Size() int {
 	return bt.tree.Len()
+}
+
+func (bt *BTree) Close() error {
+	return nil
 }
 
 func (bt *BTree) Iterator(reverse bool) Iterator {

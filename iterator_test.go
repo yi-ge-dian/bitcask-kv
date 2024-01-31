@@ -35,6 +35,8 @@ func TestDB_Iterator_One_Value(t *testing.T) {
 	assert.Nil(t, err)
 
 	iterator := db.NewIterator(DefaultIteratorOptions)
+	defer iterator.Close()
+
 	assert.NotNil(t, iterator)
 	assert.Equal(t, true, iterator.Valid())
 	assert.Equal(t, utils.GetTestKey(10), iterator.Key())
@@ -72,6 +74,7 @@ func TestDB_Iterator_Multi_Values(t *testing.T) {
 	for iter1.Seek([]byte("c")); iter1.Valid(); iter1.Next() {
 		assert.NotNil(t, iter1.Key())
 	}
+	iter1.Close()
 
 	// reverse iteration
 	iterOpts1 := DefaultIteratorOptions
@@ -84,6 +87,7 @@ func TestDB_Iterator_Multi_Values(t *testing.T) {
 	for iter2.Seek([]byte("c")); iter2.Valid(); iter2.Next() {
 		assert.NotNil(t, iter2.Key())
 	}
+	iter2.Close()
 
 	// prefix iteration
 	iterOpts2 := DefaultIteratorOptions
@@ -92,4 +96,5 @@ func TestDB_Iterator_Multi_Values(t *testing.T) {
 	for iter3.Rewind(); iter3.Valid(); iter3.Next() {
 		assert.NotNil(t, iter3.Key())
 	}
+	iter3.Close()
 }

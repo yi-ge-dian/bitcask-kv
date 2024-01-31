@@ -14,6 +14,8 @@ import (
 	"github.com/yi-ge-dian/bitcask-kv/index"
 )
 
+const seqNoKey = "seq.no"
+
 // DB
 // Bitcask KV Storage Engine Instance
 type DB struct {
@@ -41,6 +43,12 @@ type DB struct {
 
 	// Whether the database is merging
 	isMerging bool
+
+	// Whether the file that did not participate in the merge recently exists
+	seqNoFileExists bool
+
+	// Whether it is the first time to initialize the data directory
+	isInitial bool
 }
 
 // Open a Bitcask KV Storage Engine Instance
@@ -50,11 +58,20 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 
-	// determine if the data directory exists, and create it if it does not.
+	var isInitial bool
+	// determine whether the data directory exists, and if not, create the directory
 	if _, err := os.Stat(options.DirPath); os.IsNotExist(err) {
+		isInitial = true
 		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil {
 			return nil, err
 		}
+	}
+	entries, err := os.ReadDir(options.DirPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		isInitial = true
 	}
 
 	// create a new Bitcask KV Storage Engine Instance
@@ -62,7 +79,8 @@ func Open(options Options) (*DB, error) {
 		options:    options,
 		mu:         new(sync.RWMutex),
 		olderFiles: make(map[uint32]*data.DataFile),
-		index:      index.NewIndexer(options.IndexType),
+		index:      index.NewIndexer(options.IndexType, options.DirPath, options.SyncWrites),
+		isInitial:  isInitial,
 	}
 
 	// load merge data files
@@ -75,14 +93,31 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 
-	// load index from hint file
-	if err := db.loadIndexFromHintFile(); err != nil {
-		return nil, err
+	// if index type is not B+Tree, load index from data files
+	if options.IndexType != BPlusTree {
+		// load index from hint file
+		if err := db.loadIndexFromHintFile(); err != nil {
+			return nil, err
+		}
+
+		// load index from data files
+		if err := db.loadIndexFromDataFiles(); err != nil {
+			return nil, err
+		}
 	}
 
-	// load index from data files
-	if err := db.loadIndexFromDataFiles(); err != nil {
-		return nil, err
+	// if index type is B+Tree, load transaction sequence number
+	if options.IndexType == BPlusTree {
+		if err := db.loadSeqNo(); err != nil {
+			return nil, err
+		}
+		if db.activeFile != nil {
+			size, err := db.activeFile.IoManager.Size()
+			if err != nil {
+				return nil, err
+			}
+			db.activeFile.WriteOff = size
+		}
 	}
 
 	return db, nil
@@ -96,10 +131,33 @@ func (db *DB) Close() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
+	// close the index
+	if err := db.index.Close(); err != nil {
+		return err
+	}
+
+	// save the current transaction sequence number
+	seqNoFile, err := data.OpenSeqNoFile(db.options.DirPath)
+	if err != nil {
+		return err
+	}
+	record := &data.LogRecord{
+		Key:   []byte(seqNoKey),
+		Value: []byte(strconv.FormatUint(db.seqNo, 10)),
+	}
+	encRecord, _ := data.EncodeLogRecord(record)
+	if err := seqNoFile.Write(encRecord); err != nil {
+		return err
+	}
+	if err := seqNoFile.Sync(); err != nil {
+		return err
+	}
+
 	//	close the currently active data file
 	if err := db.activeFile.Close(); err != nil {
 		return err
 	}
+
 	// close all old data files
 	for _, file := range db.olderFiles {
 		if err := file.Close(); err != nil {
@@ -201,6 +259,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 // ListKeys, Get all keys
 func (db *DB) ListKeys() [][]byte {
 	iterator := db.index.Iterator(false)
+	defer iterator.Close()
 	keys := make([][]byte, db.index.Size())
 	var idx int
 	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
@@ -217,6 +276,7 @@ func (db *DB) Fold(fn func(key []byte, value []byte) bool) error {
 	defer db.mu.RUnlock()
 
 	iterator := db.index.Iterator(false)
+	defer iterator.Close()
 	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
 		value, err := db.getValueByPosition(iterator.Value())
 		if err != nil {
@@ -502,4 +562,25 @@ func checkOptions(options Options) error {
 		return errors.New("database data file size must be greater than 0")
 	}
 	return nil
+}
+
+func (db *DB) loadSeqNo() error {
+	fileName := filepath.Join(db.options.DirPath, data.SeqNoFileName)
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		return nil
+	}
+
+	seqNoFile, err := data.OpenSeqNoFile(db.options.DirPath)
+	if err != nil {
+		return err
+	}
+	record, _, err := seqNoFile.ReadLogRecord(0)
+	seqNo, err := strconv.ParseUint(string(record.Value), 10, 64)
+	if err != nil {
+		return err
+	}
+	db.seqNo = seqNo
+	db.seqNoFileExists = true
+
+	return os.Remove(fileName)
 }
