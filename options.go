@@ -20,6 +20,9 @@ type Options struct {
 
 	// Index type
 	IndexType IndexerType
+
+	// Threshold for data file merging
+	DataFileMergeRatio float32
 }
 
 type IndexerType = int8
@@ -52,12 +55,13 @@ type WriteBatchOptions struct {
 }
 
 var DefaultOptions = Options{
-	DirPath:       os.TempDir(),
-	DataFileSize:  256 * 1024 * 1024, // 256MB
-	SyncWrites:    false,
-	BytesPerSync:  0,
-	MMapAtStartup: true,
-	IndexType:     BTree,
+	DirPath:            os.TempDir(),
+	DataFileSize:       256 * 1024 * 1024, // 256MB
+	SyncWrites:         false,
+	BytesPerSync:       0,
+	MMapAtStartup:      true,
+	IndexType:          BTree,
+	DataFileMergeRatio: 0.5,
 }
 
 var DefaultIteratorOptions = IteratorOptions{

@@ -15,6 +15,7 @@ import (
 	"github.com/yi-ge-dian/bitcask-kv/data"
 	"github.com/yi-ge-dian/bitcask-kv/fio"
 	"github.com/yi-ge-dian/bitcask-kv/index"
+	"github.com/yi-ge-dian/bitcask-kv/utils"
 )
 
 const (
@@ -61,6 +62,25 @@ type DB struct {
 
 	// how many bytes have been write
 	bytesWrite uint
+
+	// indicates how much data is invalid
+	reclaimSize int64
+}
+
+// Stat
+// Bitcask KV Storage Engine Instance Statistics
+type Stat struct {
+	// Key count
+	KeyNum uint
+
+	// Data file count
+	DataFileNum uint
+
+	// The amount of data that can be recovered by merge, in bytes
+	ReclaimableSize int64
+
+	// The amount of disk space occupied by the data directory
+	DiskSize int64
 }
 
 // Open a Bitcask KV Storage Engine Instance
@@ -213,6 +233,28 @@ func (db *DB) Sync() error {
 	return db.activeFile.Sync()
 }
 
+// Stat the Bitcask KV Storage Engine Instance
+func (db *DB) Stat() *Stat {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	var dataFiles = uint(len(db.olderFiles))
+	if db.activeFile != nil {
+		dataFiles += 1
+	}
+
+	dirSize, err := utils.DirSize(db.options.DirPath)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get dir size : %v", err))
+	}
+	return &Stat{
+		KeyNum:          uint(db.index.Size()),
+		DataFileNum:     dataFiles,
+		ReclaimableSize: db.reclaimSize,
+		DiskSize:        dirSize,
+	}
+}
+
 // Put Key/Value data, key can not be empty
 func (db *DB) Put(key []byte, value []byte) error {
 	if len(key) == 0 {
@@ -233,8 +275,8 @@ func (db *DB) Put(key []byte, value []byte) error {
 	}
 
 	// update index
-	if ok := db.index.Put(key, pos); !ok {
-		return ErrIndexUpdateFailed
+	if oldPos := db.index.Put(key, pos); oldPos != nil {
+		db.reclaimSize += int64(oldPos.Size)
 	}
 
 	return nil
@@ -258,15 +300,20 @@ func (db *DB) Delete(key []byte) error {
 	}
 
 	// write to data file
-	_, err := db.appendLogRecordWithLock(logRecord)
+	pos, err := db.appendLogRecordWithLock(logRecord)
+
 	if err != nil {
 		return nil
 	}
+	db.reclaimSize += int64(pos.Size)
 
 	// remove the corresponding key from the in-memory index
-	ok := db.index.Delete(key)
+	oldPos, ok := db.index.Delete(key)
 	if !ok {
 		return ErrIndexUpdateFailed
+	}
+	if oldPos != nil {
+		db.reclaimSize += int64(oldPos.Size)
 	}
 	return nil
 }
@@ -421,6 +468,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	pos := &data.LogRecordPos{
 		Fid:    db.activeFile.FileId,
 		Offset: writeOff,
+		Size:   uint32(size),
 	}
 	return pos, nil
 }
@@ -513,14 +561,15 @@ func (db *DB) loadIndexFromDataFiles() error {
 	}
 
 	updateIndex := func(key []byte, typ data.LogRecordType, pos *data.LogRecordPos) {
-		var ok bool
+		var oldPos *data.LogRecordPos
 		if typ == data.LogRecordDeleted {
-			ok = db.index.Delete(key)
+			oldPos, _ = db.index.Delete(key)
+			db.reclaimSize += int64(pos.Size)
 		} else {
-			ok = db.index.Put(key, pos)
+			oldPos = db.index.Put(key, pos)
 		}
-		if !ok {
-			panic("failed to update index at startup")
+		if oldPos != nil {
+			db.reclaimSize += int64(oldPos.Size)
 		}
 	}
 
@@ -559,6 +608,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 			logRecordPos := &data.LogRecordPos{
 				Fid:    fileId,
 				Offset: offset,
+				Size:   uint32(size),
 			}
 
 			// parse the key from the log record, get the transaction sequence number
@@ -612,6 +662,9 @@ func checkOptions(options Options) error {
 	}
 	if options.DataFileSize <= 0 {
 		return errors.New("database data file size must be greater than 0")
+	}
+	if options.DataFileMergeRatio < 0 || options.DataFileMergeRatio > 1 {
+		return errors.New("invalid merge ratio, must between 0 and 1")
 	}
 	return nil
 }

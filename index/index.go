@@ -1,23 +1,20 @@
 package index
 
 import (
-	"bytes"
-
-	"github.com/google/btree"
 	"github.com/yi-ge-dian/bitcask-kv/data"
 )
 
 // Indexer
 // Abstracts the index
 type Indexer interface {
-	// Put the index
-	Put(key []byte, pos *data.LogRecordPos) bool
+	// Put the index, return the old value
+	Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos
 
 	// Get the index
 	Get(key []byte) *data.LogRecordPos
 
-	// Delete the index
-	Delete(key []byte) bool
+	// Delete the index, return the old value and whether it is successful
+	Delete(key []byte) (*data.LogRecordPos, bool)
 
 	// Size of the index
 	Size() int
@@ -32,13 +29,13 @@ type Indexer interface {
 type IndexType = int8
 
 const (
-	// Btree
+	// Btree index
 	Btree IndexType = iota + 1
 
-	// Adpative Radix Tree
+	// Adpative Radix Tree index
 	ART
 
-	// B+Tree
+	// B+Tree index
 	BPTree
 )
 
@@ -55,18 +52,6 @@ func NewIndexer(typ IndexType, dirPath string, sync bool) Indexer {
 	default:
 		panic("unsupported index type")
 	}
-}
-
-// Item
-type Item struct {
-	key []byte
-	pos *data.LogRecordPos
-}
-
-// Less
-// Compare the key of the item with the key of the that item
-func (item *Item) Less(that btree.Item) bool {
-	return bytes.Compare(item.key, that.(*Item).key) == -1
 }
 
 // Iterator

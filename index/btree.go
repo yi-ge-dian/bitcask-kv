@@ -9,6 +9,18 @@ import (
 	"github.com/yi-ge-dian/bitcask-kv/data"
 )
 
+// Item
+type Item struct {
+	key []byte
+	pos *data.LogRecordPos
+}
+
+// Less
+// Compare the key of the item with the key of the that item
+func (item *Item) Less(that btree.Item) bool {
+	return bytes.Compare(item.key, that.(*Item).key) == -1
+}
+
 // BTree
 // Use the btree to implement the index
 //
@@ -28,12 +40,15 @@ func NewBTree() *BTree {
 }
 
 // Put the index
-func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) bool {
-	it := &Item{key, pos}
+func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
+	it := &Item{key: key, pos: pos}
 	bt.mu.Lock()
-	defer bt.mu.Unlock()
-	bt.tree.ReplaceOrInsert(it)
-	return true
+	oldItem := bt.tree.ReplaceOrInsert(it)
+	bt.mu.Unlock()
+	if oldItem == nil {
+		return nil
+	}
+	return oldItem.(*Item).pos
 }
 
 // Get the index
@@ -47,12 +62,15 @@ func (bt *BTree) Get(key []byte) *data.LogRecordPos {
 }
 
 // Delete the index
-func (bt *BTree) Delete(key []byte) bool {
+func (bt *BTree) Delete(key []byte) (*data.LogRecordPos, bool) {
+	it := &Item{key: key}
 	bt.mu.Lock()
-	defer bt.mu.Unlock()
-	it := &Item{key, nil}
-	olditem := bt.tree.Delete(it)
-	return olditem != nil
+	oldItem := bt.tree.Delete(it)
+	bt.mu.Unlock()
+	if oldItem == nil {
+		return nil, false
+	}
+	return oldItem.(*Item).pos, true
 }
 
 func (bt *BTree) Size() int {
