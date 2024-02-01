@@ -255,6 +255,13 @@ func (db *DB) Stat() *Stat {
 	}
 }
 
+// Backup the database and copy the data files to a new directory
+func (db *DB) Backup(dir string) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return utils.CopyDir(db.options.DirPath, dir, []string{fileLockName})
+}
+
 // Put Key/Value data, key can not be empty
 func (db *DB) Put(key []byte, value []byte) error {
 	if len(key) == 0 {
