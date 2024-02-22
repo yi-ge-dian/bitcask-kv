@@ -176,8 +176,13 @@ func Open(options Options) (*DB, error) {
 // Close the Bitcask KV Storage Engine Instance
 func (db *DB) Close() error {
 	defer func() {
+		// release the file lock
 		if err := db.fileLock.Unlock(); err != nil {
 			panic(fmt.Sprintf("failed to unlock the directory, %v", err))
+		}
+		// close the index
+		if err := db.index.Close(); err != nil {
+			panic(fmt.Sprintf("failed to close index, %v", err))
 		}
 	}()
 
@@ -186,11 +191,6 @@ func (db *DB) Close() error {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
-
-	// close the index
-	if err := db.index.Close(); err != nil {
-		return err
-	}
 
 	// save the current transaction sequence number
 	seqNoFile, err := data.OpenSeqNoFile(db.options.DirPath)
