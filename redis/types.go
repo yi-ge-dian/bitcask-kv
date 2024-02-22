@@ -6,6 +6,7 @@ import (
 	"time"
 
 	bitcask "github.com/yi-ge-dian/bitcask-kv"
+	"github.com/yi-ge-dian/bitcask-kv/utils"
 )
 
 var (
@@ -33,6 +34,10 @@ func NewRedisDataStructure(options bitcask.Options) (*RedisDataStructure, error)
 		return nil, err
 	}
 	return &RedisDataStructure{db: db}, nil
+}
+
+func (rds *RedisDataStructure) Close() error {
+	return rds.db.Close()
 }
 
 // =================================== String ===================================
@@ -358,6 +363,85 @@ func (rds *RedisDataStructure) popInner(key []byte, isLeft bool) ([]byte, error)
 	}
 
 	return element, nil
+}
+
+// ======================= ZSet  =======================
+
+func (rds *RedisDataStructure) ZAdd(key []byte, score float64, member []byte) (bool, error) {
+	meta, err := rds.findMetadata(key, ZSet)
+	if err != nil {
+		return false, err
+	}
+
+	// construct internal key
+	zk := &zsetInternalKey{
+		key:     key,
+		version: meta.version,
+		score:   score,
+		member:  member,
+	}
+
+	var exist = true
+	// check if member exists
+	value, err := rds.db.Get(zk.encodeWithMember())
+	if err != nil && err != bitcask.ErrKeyNotFound {
+		return false, err
+	}
+	if err == bitcask.ErrKeyNotFound {
+		exist = false
+	}
+	if exist {
+		if score == utils.FloatFromBytes(value) {
+			return false, nil
+		}
+	}
+
+	// update
+	wb := rds.db.NewWriteBatch(bitcask.DefaultWriteBatchOptions)
+	if !exist {
+		meta.size++
+		_ = wb.Put(key, meta.encode())
+	}
+	if exist {
+		oldKey := &zsetInternalKey{
+			key:     key,
+			version: meta.version,
+			member:  member,
+			score:   utils.FloatFromBytes(value),
+		}
+		_ = wb.Delete(oldKey.encodeWithScore())
+	}
+	_ = wb.Put(zk.encodeWithMember(), utils.Float64ToBytes(score))
+	_ = wb.Put(zk.encodeWithScore(), nil)
+	if err = wb.Commit(); err != nil {
+		return false, err
+	}
+
+	return !exist, nil
+}
+
+func (rds *RedisDataStructure) ZScore(key []byte, member []byte) (float64, error) {
+	meta, err := rds.findMetadata(key, ZSet)
+	if err != nil {
+		return -1, err
+	}
+	if meta.size == 0 {
+		return -1, nil
+	}
+
+	// construct internal key
+	zk := &zsetInternalKey{
+		key:     key,
+		version: meta.version,
+		member:  member,
+	}
+
+	value, err := rds.db.Get(zk.encodeWithMember())
+	if err != nil {
+		return -1, err
+	}
+
+	return utils.FloatFromBytes(value), nil
 }
 
 func (rds *RedisDataStructure) findMetadata(key []byte, dataType redisDataType) (*metadata, error) {
